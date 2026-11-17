@@ -40,6 +40,18 @@ flutter run -d chrome --web-port 3000 --dart-define=API_BASE_URL=http://localhos
 
 `API_BASE_URL` é pública: nunca passar segredos com `--dart-define`. Em produção, frontend e API devem ser publicados por HTTPS na mesma origem, usando o proxy reverso do frontend.
 
+### Docker Compose
+
+Alternativa local aos dois terminais acima, usando os `Dockerfile` de `backend/` e `frontend/`:
+
+```bash
+cp backend/.env.example backend/.env
+# edite backend/.env com as credenciais do SQL Server e SMTP
+docker compose up --build
+```
+
+Frontend em `http://localhost:3000` (proxy Nginx para `/api/`), backend em `http://localhost:8080`. O SQL Server não é provisionado pelo Compose; `DB_HOST` em `backend/.env` deve apontar para um banco acessível pelo container.
+
 ## Banco
 
 Crie um banco vazio no SQL Server 2016 SP1 ou posterior, compatibilidade >=130.
