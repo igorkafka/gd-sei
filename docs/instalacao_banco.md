@@ -7,6 +7,13 @@ de executá-lo. Não execute esta sequência no SEI oficial.
 
 ## Banco novo
 
+`database/instalar_banco_novo.sql` reúne os passos 1, 2, 3, 6, 8 e 9 abaixo
+(os scripts que não dependem de carga externa nem de revisão humana) em um único
+arquivo para entregar ao DBA responsável, na ordem documentada, com verificação
+do nome do banco antes do trecho equivalente a 006. Ele não substitui os passos
+4, 5 e 7, que continuam manuais; o próprio arquivo lista esses pendentes ao final.
+Se os arquivos numerados forem alterados, regenere esse arquivo a partir deles.
+
 1. Execute `database/001_base.sql`.
 2. Execute `database/009_referencias_complementares.sql`, antes de 002/006.
    O número 009 identifica um complemento posterior; a ordem não é numérica.

@@ -1,11 +1,13 @@
 # Build: contexto backend/
-FROM dart:3.9-sdk AS build
+# Mesma versão de Dart usada no CI (.github/workflows/ci.yml); 3.9 não resolve
+# a dependência dev test ^1.33.0 (exige SDK >=3.11).
+FROM dart:3.13.2-sdk AS build
 WORKDIR /src
 COPY pubspec.* ./
 COPY vendor/dart_odbc ./vendor/dart_odbc
 RUN dart pub get
 COPY . .
-RUN dart compile exe bin/server.dart -o /out/gd-sei-server
+RUN mkdir -p /out && dart compile exe bin/server.dart -o /out/gd-sei-server
 
 # Runtime Linux: unixODBC + Microsoft ODBC Driver 18
 FROM debian:bookworm-slim

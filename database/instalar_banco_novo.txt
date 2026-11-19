@@ -1,0 +1,952 @@
+-- Script gerado para entrega ao DBA responsável pela instalação do GD-SEI.
+-- Reúne, na ordem documentada em docs/instalacao_banco.md, os arquivos que
+-- não dependem de carga de dados externa nem de revisão humana:
+--   001_base.sql, 009_referencias_complementares.sql, 002_publicacao.sql,
+--   004_consultas.sql, 005_manifestacoes.sql, 006_completar_atribuicoes.sql,
+--   007_administracao.sql, 008_decisao_tipo.sql.
+--
+-- Pré-requisitos:
+--   * SQL Server 2016 SP1 ou posterior, nível de compatibilidade >= 130.
+--   * Banco vazio já criado e SELECIONADO antes de executar este script.
+--   * Executar com uma ferramenta que interprete "GO" e pare no primeiro erro
+--     (ex.: sqlcmd -b, ou SSMS com "Stop on error"). NÃO executar no SEI oficial.
+--
+-- Este script NÃO carrega dados de referência, NÃO publica versão, NÃO cadastra
+-- órgãos e NÃO aplica atribuições: essas etapas exigem dados da fonte SEI
+-- autorizada e revisão humana, e ficam listadas ao final (seção "PENDENTE").
+--
+-- Se os arquivos originais em database/ forem alterados, regenere este arquivo
+-- a partir deles; ele é uma cópia para entrega, não a fonte de verdade.
+
+-- ====================================================================
+-- Origem: database/001_base.sql
+-- ====================================================================
+-- Executar uma vez em banco vazio previamente criado. SQL Server 2016 SP1+.
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+CREATE TABLE dbo.versao_base (
+ versao int NOT NULL PRIMARY KEY CHECK (versao >= 0),
+ data_carga datetime2 NOT NULL DEFAULT SYSUTCDATETIME(),
+ usuario_carga nvarchar(150) NOT NULL,
+ origem nvarchar(250) NOT NULL,
+ observacao nvarchar(1000) NULL
+);
+GO
+CREATE TABLE dbo.ref_assunto (
+id_assunto int NOT NULL,
+codigo_estruturado varchar(50) NOT NULL,
+descricao varchar(250) NOT NULL,
+observacao varchar(500) NULL,
+idx_assunto varchar(1000) NULL,
+sin_ativo char(1) NOT NULL,
+prazo_intermediario int NULL,
+prazo_corrente int NULL,
+sta_destinacao char(1) NULL,
+sin_estrutural char(1) NULL,
+id_tabela_assuntos int NOT NULL,
+CONSTRAINT PK_ref_assunto PRIMARY KEY (id_assunto)
+);
+GO
+CREATE TABLE dbo.assunto (
+id_assunto int NOT NULL,
+codigo_estruturado varchar(50) NOT NULL,
+descricao varchar(250) NOT NULL,
+observacao varchar(500) NULL,
+idx_assunto varchar(1000) NULL,
+sin_ativo char(1) NOT NULL,
+prazo_intermediario int NULL,
+prazo_corrente int NULL,
+sta_destinacao char(1) NULL,
+sin_estrutural char(1) NULL,
+id_tabela_assuntos int NOT NULL,
+versao int NOT NULL,
+sin_ultima char(1) NOT NULL CHECK (sin_ultima IN ('S','N')),
+CONSTRAINT PK_assunto PRIMARY KEY (versao, id_assunto),
+CONSTRAINT FK_assunto_versao FOREIGN KEY (versao) REFERENCES dbo.versao_base(versao)
+);
+GO
+CREATE OR ALTER TRIGGER dbo.tr_ref_assunto_imutavel
+ON dbo.ref_assunto INSTEAD OF UPDATE, DELETE AS
+BEGIN
+ THROW 51000, 'Tabela de referencia imutavel: UPDATE e DELETE proibidos.', 1;
+END;
+GO
+CREATE TABLE dbo.ref_tipo_procedimento (
+id_tipo_procedimento int NOT NULL,
+nome varchar(100) NOT NULL,
+descricao varchar(250) NULL,
+sin_ativo char(1) NOT NULL,
+sta_nivel_acesso_sugestao char(1) NOT NULL,
+sin_interno char(1) NOT NULL,
+sin_ouvidoria char(1) NOT NULL,
+sin_individual char(1) NOT NULL,
+id_hipotese_legal_sugestao int NULL,
+sta_grau_sigilo_sugestao char(1) NULL,
+id_plano_trabalho int NULL,
+sin_ouvidoria_anonimo char(1) NOT NULL,
+CONSTRAINT PK_ref_tipo_procedimento PRIMARY KEY (id_tipo_procedimento)
+);
+GO
+CREATE TABLE dbo.tipo_procedimento (
+id_tipo_procedimento int NOT NULL,
+nome varchar(100) NOT NULL,
+descricao varchar(250) NULL,
+sin_ativo char(1) NOT NULL,
+sta_nivel_acesso_sugestao char(1) NOT NULL,
+sin_interno char(1) NOT NULL,
+sin_ouvidoria char(1) NOT NULL,
+sin_individual char(1) NOT NULL,
+id_hipotese_legal_sugestao int NULL,
+sta_grau_sigilo_sugestao char(1) NULL,
+id_plano_trabalho int NULL,
+sin_ouvidoria_anonimo char(1) NOT NULL,
+versao int NOT NULL,
+sin_ultima char(1) NOT NULL CHECK (sin_ultima IN ('S','N')),
+CONSTRAINT PK_tipo_procedimento PRIMARY KEY (versao, id_tipo_procedimento),
+CONSTRAINT FK_tipo_procedimento_versao FOREIGN KEY (versao) REFERENCES dbo.versao_base(versao)
+);
+GO
+CREATE OR ALTER TRIGGER dbo.tr_ref_tipo_procedimento_imutavel
+ON dbo.ref_tipo_procedimento INSTEAD OF UPDATE, DELETE AS
+BEGIN
+ THROW 51000, 'Tabela de referencia imutavel: UPDATE e DELETE proibidos.', 1;
+END;
+GO
+CREATE TABLE dbo.ref_rel_tipo_procedimento_assunto (
+id_tipo_procedimento int NOT NULL,
+sequencia int NOT NULL,
+id_assunto_proxy int NOT NULL,
+CONSTRAINT PK_ref_rel_tipo_procedimento_assunto PRIMARY KEY (id_tipo_procedimento, sequencia)
+);
+GO
+CREATE TABLE dbo.rel_tipo_procedimento_assunto (
+id_tipo_procedimento int NOT NULL,
+sequencia int NOT NULL,
+id_assunto_proxy int NOT NULL,
+versao int NOT NULL,
+sin_ultima char(1) NOT NULL CHECK (sin_ultima IN ('S','N')),
+CONSTRAINT PK_rel_tipo_procedimento_assunto PRIMARY KEY (versao, id_tipo_procedimento, sequencia),
+CONSTRAINT FK_rel_tipo_procedimento_assunto_versao FOREIGN KEY (versao) REFERENCES dbo.versao_base(versao)
+);
+GO
+CREATE OR ALTER TRIGGER dbo.tr_ref_rel_tipo_procedimento_assunto_imutavel
+ON dbo.ref_rel_tipo_procedimento_assunto INSTEAD OF UPDATE, DELETE AS
+BEGIN
+ THROW 51000, 'Tabela de referencia imutavel: UPDATE e DELETE proibidos.', 1;
+END;
+GO
+ALTER TABLE dbo.ref_rel_tipo_procedimento_assunto ADD
+ CONSTRAINT FK_ref_rel_tipo FOREIGN KEY (id_tipo_procedimento) REFERENCES dbo.ref_tipo_procedimento(id_tipo_procedimento),
+ CONSTRAINT FK_ref_rel_assunto FOREIGN KEY (id_assunto_proxy) REFERENCES dbo.ref_assunto(id_assunto);
+ALTER TABLE dbo.rel_tipo_procedimento_assunto ADD
+ CONSTRAINT FK_rel_tipo FOREIGN KEY (versao,id_tipo_procedimento) REFERENCES dbo.tipo_procedimento(versao,id_tipo_procedimento),
+ CONSTRAINT FK_rel_assunto FOREIGN KEY (versao,id_assunto_proxy) REFERENCES dbo.assunto(versao,id_assunto);
+GO
+
+-- ====================================================================
+-- Origem: database/009_referencias_complementares.sql
+-- ====================================================================
+-- Instalação nova: após 001 e antes de 002/006.
+-- Base existente: executar este complemento e reaplicar 002.
+-- Não carrega referências nem altera os pais dos snapshots existentes.
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+SET XACT_ABORT ON;
+GO
+BEGIN TRY
+ BEGIN TRANSACTION;
+ IF OBJECT_ID('dbo.ref_assunto','U') IS NULL OR OBJECT_ID('dbo.assunto','U') IS NULL
+  THROW 51300,'Execute 001_base.sql antes deste complemento.',1;
+
+ IF COL_LENGTH('dbo.ref_assunto','id_assunto_pai') IS NULL
+  ALTER TABLE dbo.ref_assunto ADD id_assunto_pai int NULL;
+ IF COL_LENGTH('dbo.assunto','id_assunto_pai') IS NULL
+  ALTER TABLE dbo.assunto ADD id_assunto_pai int NULL;
+
+ -- Definições conferidas no banco existente em 19/10/2026.
+ -- São referências atuais, sem versão própria. Não adicionar FKs a snapshots.
+ IF OBJECT_ID('dbo.hipotese_legal','U') IS NULL
+  CREATE TABLE dbo.hipotese_legal (
+   id_hipotese_legal int NOT NULL CONSTRAINT PK_hipotese_legal PRIMARY KEY,
+   nome varchar(50) COLLATE Latin1_General_CI_AS NOT NULL,
+   base_legal varchar(50) COLLATE Latin1_General_CI_AS NOT NULL,
+   descricao varchar(500) COLLATE Latin1_General_CI_AS NULL,
+   sta_nivel_acesso char(1) COLLATE Latin1_General_CI_AS NOT NULL,
+   sin_ativo char(1) COLLATE Latin1_General_CI_AS NOT NULL
+  );
+ IF OBJECT_ID('dbo.tipo_procedimento_restricao','U') IS NULL
+  CREATE TABLE dbo.tipo_procedimento_restricao (
+   id_tipo_procedimento int NOT NULL,
+   id_orgao int NOT NULL,
+   CONSTRAINT PK_restricao PRIMARY KEY(id_tipo_procedimento,id_orgao)
+  );
+ COMMIT;
+END TRY
+BEGIN CATCH
+ IF XACT_STATE()<>0 ROLLBACK;
+ THROW;
+END CATCH;
+GO
+
+-- ====================================================================
+-- Origem: database/002_publicacao.sql
+-- ====================================================================
+-- Instalação nova: executar 001 e 009 antes deste script.
+-- Pode ser reaplicado para atualizar a procedure, sem publicar dados.
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+CREATE OR ALTER PROCEDURE dbo.sp_publicar_versao_sei
+ @usuario_carga nvarchar(150),
+ @origem nvarchar(250),
+ @observacao nvarchar(1000) = NULL
+AS
+BEGIN
+ SET NOCOUNT ON;
+ SET XACT_ABORT ON;
+ IF @@TRANCOUNT <> 0 THROW 51001, 'Execute fora de outra transacao.', 1;
+ IF NULLIF(LTRIM(RTRIM(@usuario_carga)), '') IS NULL OR NULLIF(LTRIM(RTRIM(@origem)), '') IS NULL
+  THROW 51002, 'Informe usuario e origem.', 1;
+ BEGIN TRY
+  BEGIN TRANSACTION;
+  DECLARE @lock int, @versao int, @quantidade bigint;
+  EXEC @lock = sys.sp_getapplock @Resource='publicacao_base_sei',
+   @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=15000;
+  IF @lock < 0 THROW 51003, 'Publicacao concorrente: tente novamente.', 1;
+  -- Bloqueia inclusive INSERT durante validacao e copia. Mesma ordem em toda publicacao.
+  SELECT @quantidade=COUNT_BIG(*) FROM dbo.ref_assunto WITH (TABLOCKX,HOLDLOCK);
+  IF @quantidade=0 THROW 51004, 'Carga de assuntos vazia.', 1;
+  SELECT @quantidade=COUNT_BIG(*) FROM dbo.ref_tipo_procedimento WITH (TABLOCKX,HOLDLOCK);
+  IF @quantidade=0 THROW 51005, 'Carga de tipos vazia.', 1;
+  SELECT @quantidade=COUNT_BIG(*) FROM dbo.ref_rel_tipo_procedimento_assunto WITH (TABLOCKX,HOLDLOCK);
+  IF EXISTS (SELECT 1 FROM dbo.ref_assunto WHERE sin_ativo NOT IN ('S','N'))
+   OR EXISTS (SELECT 1 FROM dbo.ref_tipo_procedimento WHERE sin_ativo NOT IN ('S','N'))
+   THROW 51006, 'sin_ativo deve ser S ou N.', 1;
+  IF EXISTS (SELECT 1 FROM dbo.ref_rel_tipo_procedimento_assunto r
+   LEFT JOIN dbo.ref_assunto a ON a.id_assunto=r.id_assunto_proxy
+   LEFT JOIN dbo.ref_tipo_procedimento t ON t.id_tipo_procedimento=r.id_tipo_procedimento
+   WHERE a.id_assunto IS NULL OR t.id_tipo_procedimento IS NULL)
+   THROW 51007, 'Vinculo com referencia inexistente.', 1;
+  IF EXISTS (SELECT 1 FROM dbo.ref_rel_tipo_procedimento_assunto
+   GROUP BY id_tipo_procedimento,id_assunto_proxy HAVING COUNT(*)>1)
+   THROW 51008, 'Vinculo Tipo x Assunto duplicado.', 1;
+  IF EXISTS (SELECT 1 FROM dbo.ref_assunto filho
+   WHERE filho.id_assunto_pai IS NOT NULL AND (
+    filho.id_assunto_pai=filho.id_assunto OR NOT EXISTS (
+     SELECT 1 FROM dbo.ref_assunto pai WHERE pai.id_assunto=filho.id_assunto_pai)))
+   THROW 51009, 'Pai de Assunto inexistente ou igual ao proprio Assunto.', 1;
+  -- Uma base antiga pode ter hierarquia apenas no snapshot. Não a perder
+  -- silenciosamente: a referência deve ser completada pela fonte oficial.
+  IF EXISTS (SELECT 1 FROM dbo.ref_assunto fonte
+   JOIN dbo.assunto anterior ON anterior.id_assunto=fonte.id_assunto AND anterior.sin_ultima='S'
+   WHERE anterior.id_assunto_pai IS NOT NULL AND fonte.id_assunto_pai IS NULL)
+   THROW 51010, 'Carregue a hierarquia explicita na referencia antes de publicar.', 1;
+  SELECT @versao=ISNULL(MAX(versao),-1)+1 FROM dbo.versao_base WITH (UPDLOCK,HOLDLOCK);
+  -- Registro pai precede as copias por causa das FKs; tudo participa da mesma transacao.
+  INSERT dbo.versao_base(versao,usuario_carga,origem,observacao)
+   VALUES(@versao,@usuario_carga,@origem,@observacao);
+  UPDATE dbo.assunto SET sin_ultima='N' WHERE sin_ultima='S';
+  INSERT dbo.assunto(id_assunto,codigo_estruturado,descricao,observacao,idx_assunto,sin_ativo,prazo_intermediario,prazo_corrente,sta_destinacao,sin_estrutural,id_tabela_assuntos,id_assunto_pai,versao,sin_ultima)
+   SELECT id_assunto,codigo_estruturado,descricao,observacao,idx_assunto,sin_ativo,prazo_intermediario,prazo_corrente,sta_destinacao,sin_estrutural,id_tabela_assuntos,id_assunto_pai,@versao,'S' FROM dbo.ref_assunto;
+  UPDATE dbo.tipo_procedimento SET sin_ultima='N' WHERE sin_ultima='S';
+  INSERT dbo.tipo_procedimento(id_tipo_procedimento,nome,descricao,sin_ativo,sta_nivel_acesso_sugestao,sin_interno,sin_ouvidoria,sin_individual,id_hipotese_legal_sugestao,sta_grau_sigilo_sugestao,id_plano_trabalho,sin_ouvidoria_anonimo,versao,sin_ultima)
+   SELECT id_tipo_procedimento,nome,descricao,sin_ativo,sta_nivel_acesso_sugestao,sin_interno,sin_ouvidoria,sin_individual,id_hipotese_legal_sugestao,sta_grau_sigilo_sugestao,id_plano_trabalho,sin_ouvidoria_anonimo,@versao,'S' FROM dbo.ref_tipo_procedimento;
+  UPDATE dbo.rel_tipo_procedimento_assunto SET sin_ultima='N' WHERE sin_ultima='S';
+  INSERT dbo.rel_tipo_procedimento_assunto(id_tipo_procedimento,sequencia,id_assunto_proxy,versao,sin_ultima)
+   SELECT id_tipo_procedimento,sequencia,id_assunto_proxy,@versao,'S' FROM dbo.ref_rel_tipo_procedimento_assunto;
+  COMMIT;
+  SELECT @versao AS versao;
+ END TRY
+ BEGIN CATCH
+  IF XACT_STATE() <> 0 ROLLBACK;
+  THROW;
+ END CATCH;
+END;
+GO
+
+-- ====================================================================
+-- Origem: database/004_consultas.sql
+-- ====================================================================
+-- Executar uma vez em sei_gd, após scripts 001 e 002.
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+CREATE TABLE dbo.usuario (
+ id_usuario int IDENTITY PRIMARY KEY,
+ email varchar(250) NOT NULL UNIQUE,
+ sin_ativo char(1) NOT NULL DEFAULT 'S' CHECK(sin_ativo IN ('S','N'))
+);
+CREATE TABLE dbo.orgao (
+ id_orgao int IDENTITY PRIMARY KEY,
+ nome nvarchar(150) NOT NULL,
+ sigla varchar(30) NOT NULL UNIQUE
+);
+CREATE TABLE dbo.usuario_orgao (
+ id_usuario int NOT NULL REFERENCES dbo.usuario(id_usuario),
+ id_orgao int NOT NULL REFERENCES dbo.orgao(id_orgao),
+ PRIMARY KEY(id_usuario,id_orgao)
+);
+CREATE TABLE dbo.consulta (
+ id_consulta int IDENTITY PRIMARY KEY,
+ nome nvarchar(150) NOT NULL,
+ versao int NOT NULL REFERENCES dbo.versao_base(versao),
+ UNIQUE(id_consulta,versao)
+);
+CREATE TABLE dbo.consulta_orgao (
+ id_consulta int NOT NULL REFERENCES dbo.consulta(id_consulta),
+ id_orgao int NOT NULL REFERENCES dbo.orgao(id_orgao),
+ status varchar(12) NOT NULL DEFAULT 'RASCUNHO' CHECK(status IN ('RASCUNHO','FINALIZADA')),
+ PRIMARY KEY(id_consulta,id_orgao)
+);
+CREATE TABLE dbo.consulta_orgao_tipo (
+ id_atribuicao int IDENTITY PRIMARY KEY,
+ id_consulta int NOT NULL,
+ id_orgao int NOT NULL,
+ versao int NOT NULL,
+ id_tipo_procedimento int NOT NULL,
+ UNIQUE(id_consulta,id_orgao,id_tipo_procedimento),
+ FOREIGN KEY(id_consulta,id_orgao) REFERENCES dbo.consulta_orgao(id_consulta,id_orgao),
+ FOREIGN KEY(id_consulta,versao) REFERENCES dbo.consulta(id_consulta,versao),
+ FOREIGN KEY(versao,id_tipo_procedimento) REFERENCES dbo.tipo_procedimento(versao,id_tipo_procedimento)
+);
+CREATE TABLE dbo.visualizacao_tipo (
+ id_atribuicao int NOT NULL PRIMARY KEY REFERENCES dbo.consulta_orgao_tipo(id_atribuicao),
+ id_usuario int NOT NULL REFERENCES dbo.usuario(id_usuario),
+ data_visualizacao datetime2 NOT NULL DEFAULT SYSUTCDATETIME()
+);
+CREATE TABLE dbo.auditoria (
+ id_auditoria bigint IDENTITY PRIMARY KEY,
+ data_evento datetime2 NOT NULL DEFAULT SYSUTCDATETIME(),
+ id_usuario int NOT NULL REFERENCES dbo.usuario(id_usuario),
+ evento varchar(50) NOT NULL,
+ detalhe nvarchar(1000) NULL
+);
+INSERT dbo.usuario(email) VALUES('pg@setic.ro.gov.br');
+COMMIT;
+GO
+CREATE OR ALTER TRIGGER dbo.tr_auditoria_imutavel ON dbo.auditoria
+INSTEAD OF UPDATE,DELETE AS
+BEGIN
+ THROW 51020, 'Historico de auditoria nao pode ser sobrescrito.', 1;
+END;
+GO
+
+-- ====================================================================
+-- Origem: database/005_manifestacoes.sql
+-- ====================================================================
+-- Executar uma vez em sei_gd após 004. Não modifica a referência nem a base SEI.
+-- OPENJSON exige compatibilidade >=130 (SQL Server 2016+).
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+SET XACT_ABORT ON;
+GO
+BEGIN TRANSACTION;
+ALTER TABLE dbo.consulta_orgao ADD data_finalizacao datetime2 NULL,
+ id_usuario_finalizacao int NULL REFERENCES dbo.usuario(id_usuario), revisao int NOT NULL DEFAULT 0;
+ALTER TABLE dbo.consulta_orgao_tipo ADD CONSTRAINT UQ_atribuicao_versao UNIQUE(id_atribuicao,versao);
+ALTER TABLE dbo.auditoria ALTER COLUMN detalhe nvarchar(max) NULL;
+CREATE TABLE dbo.manifestacao_tipo (
+ id_atribuicao int NOT NULL PRIMARY KEY,
+ versao int NOT NULL,
+ observacao nvarchar(5000) NULL,
+ revisao int NOT NULL DEFAULT 1,
+ id_usuario_alteracao int NOT NULL REFERENCES dbo.usuario(id_usuario),
+ data_alteracao datetime2 NOT NULL DEFAULT SYSUTCDATETIME(),
+ UNIQUE(id_atribuicao,versao),
+ FOREIGN KEY(id_atribuicao,versao) REFERENCES dbo.consulta_orgao_tipo(id_atribuicao,versao)
+);
+CREATE TABLE dbo.manifestacao_vinculo (
+ id_atribuicao int NOT NULL,
+ versao int NOT NULL,
+ id_assunto int NOT NULL,
+ acao varchar(10) NOT NULL CHECK(acao IN ('MANTER','REMOVER','ADICIONAR')),
+ justificativa nvarchar(2000) NULL,
+ PRIMARY KEY(id_atribuicao,id_assunto),
+ FOREIGN KEY(id_atribuicao,versao) REFERENCES dbo.manifestacao_tipo(id_atribuicao,versao),
+ FOREIGN KEY(versao,id_assunto) REFERENCES dbo.assunto(versao,id_assunto),
+ CHECK(acao='MANTER' OR NULLIF(LTRIM(RTRIM(justificativa)),N'') IS NOT NULL)
+);
+COMMIT;
+GO
+CREATE OR ALTER PROCEDURE dbo.sp_salvar_manifestacao
+ @id_usuario int, @id_atribuicao int, @revisao_esperada int,
+ @observacao nvarchar(max), @vinculos nvarchar(max)
+AS
+BEGIN
+ SET NOCOUNT ON; SET XACT_ABORT ON;
+ IF @revisao_esperada IS NULL OR @revisao_esperada<0 THROW 51033,'Revisao invalida.',1;
+ BEGIN TRY
+  BEGIN TRANSACTION;
+  DECLARE @consulta int,@orgao int,@versao int,@tipo int,@status varchar(12),@revisao int,@antes nvarchar(max),@depois nvarchar(max);
+  SELECT @consulta=id_consulta,@orgao=id_orgao,@versao=versao,@tipo=id_tipo_procedimento
+   FROM dbo.consulta_orgao_tipo WHERE id_atribuicao=@id_atribuicao;
+  IF @consulta IS NULL THROW 51030,'Atribuicao nao autorizada.',1;
+  SELECT @status=status FROM dbo.consulta_orgao WITH(UPDLOCK,HOLDLOCK)
+   WHERE id_consulta=@consulta AND id_orgao=@orgao;
+  IF NOT EXISTS(SELECT 1 FROM dbo.usuario_orgao u WITH(HOLDLOCK)
+   JOIN dbo.usuario p WITH(HOLDLOCK) ON p.id_usuario=u.id_usuario AND p.sin_ativo='S'
+   WHERE u.id_usuario=@id_usuario AND u.id_orgao=@orgao)
+   THROW 51030,'Atribuicao nao autorizada.',1;
+  IF @status='FINALIZADA' THROW 51031,'Manifestacao finalizada.',1;
+  SELECT @revisao=revisao FROM dbo.manifestacao_tipo WITH(UPDLOCK,HOLDLOCK) WHERE id_atribuicao=@id_atribuicao;
+  IF ISNULL(@revisao,0)<>@revisao_esperada THROW 51032,'Outro usuario alterou este Tipo. Recarregue.',1;
+  IF LEN(ISNULL(@observacao,N''))>5000 THROW 51040,'Observacao excede 5000 caracteres.',1;
+  IF @vinculos IS NULL OR ISJSON(@vinculos)<>1 OR LEFT(LTRIM(@vinculos),1)<>'[' THROW 51033,'Lista de vinculos invalida.',1;
+  DECLARE @itens TABLE(id_assunto int NULL,acao nvarchar(max) NULL,justificativa nvarchar(max) NULL);
+  INSERT @itens SELECT id_assunto,acao,justificativa FROM OPENJSON(@vinculos)
+   WITH(id_assunto int '$.id_assunto',acao nvarchar(max) '$.acao',justificativa nvarchar(max) '$.justificativa');
+  IF EXISTS(SELECT 1 FROM @itens WHERE id_assunto IS NULL OR acao IS NULL OR acao NOT IN('MANTER','REMOVER','ADICIONAR'))
+   OR EXISTS(SELECT 1 FROM @itens GROUP BY id_assunto HAVING COUNT(*)>1)
+   THROW 51033,'Lista de vinculos invalida ou duplicada.',1;
+  IF EXISTS(SELECT 1 FROM @itens WHERE LEN(ISNULL(justificativa,N''))>2000)
+   THROW 51040,'Justificativa excede 2000 caracteres.',1;
+  IF EXISTS(SELECT 1 FROM @itens WHERE acao IN('REMOVER','ADICIONAR') AND NULLIF(LTRIM(RTRIM(justificativa)),N'') IS NULL)
+   THROW 51036,'Justificativa obrigatoria para remover e adicionar.',1;
+  IF EXISTS(SELECT 1 FROM @itens i LEFT JOIN dbo.assunto s ON s.versao=@versao AND s.id_assunto=i.id_assunto
+   WHERE s.id_assunto IS NULL OR (i.acao='ADICIONAR' AND s.sin_ativo<>'S'))
+   THROW 51035,'Assunto inexistente ou inclusao de assunto inativo.',1;
+  IF EXISTS(SELECT 1 FROM @itens i WHERE
+   (i.acao='ADICIONAR' AND EXISTS(SELECT 1 FROM dbo.rel_tipo_procedimento_assunto r
+     WHERE r.versao=@versao AND r.id_tipo_procedimento=@tipo AND r.id_assunto_proxy=i.id_assunto))
+   OR (i.acao IN('MANTER','REMOVER') AND NOT EXISTS(SELECT 1 FROM dbo.rel_tipo_procedimento_assunto r
+     WHERE r.versao=@versao AND r.id_tipo_procedimento=@tipo AND r.id_assunto_proxy=i.id_assunto)))
+   THROW 51034,'Acao incompatível com vinculo original.',1;
+  SELECT @antes=(SELECT m.observacao,m.revisao,
+    JSON_QUERY((SELECT id_assunto,acao,justificativa FROM dbo.manifestacao_vinculo WHERE id_atribuicao=@id_atribuicao ORDER BY id_assunto FOR JSON PATH)) AS vinculos
+    FROM dbo.manifestacao_tipo m WHERE m.id_atribuicao=@id_atribuicao FOR JSON PATH,WITHOUT_ARRAY_WRAPPER);
+  IF @revisao IS NULL
+   INSERT dbo.manifestacao_tipo(id_atribuicao,versao,observacao,id_usuario_alteracao)
+    VALUES(@id_atribuicao,@versao,@observacao,@id_usuario);
+  ELSE
+   UPDATE dbo.manifestacao_tipo SET observacao=@observacao,revisao=revisao+1,id_usuario_alteracao=@id_usuario,data_alteracao=SYSUTCDATETIME()
+    WHERE id_atribuicao=@id_atribuicao;
+  DELETE dbo.manifestacao_vinculo WHERE id_atribuicao=@id_atribuicao;
+  INSERT dbo.manifestacao_vinculo(id_atribuicao,versao,id_assunto,acao,justificativa)
+   SELECT @id_atribuicao,@versao,id_assunto,acao,justificativa FROM @itens;
+  UPDATE dbo.consulta_orgao SET revisao=revisao+1 WHERE id_consulta=@consulta AND id_orgao=@orgao;
+  SELECT @depois=(SELECT observacao,revisao,JSON_QUERY(@vinculos) AS vinculos FROM dbo.manifestacao_tipo WHERE id_atribuicao=@id_atribuicao FOR JSON PATH,WITHOUT_ARRAY_WRAPPER);
+  INSERT dbo.auditoria(id_usuario,evento,detalhe)
+   SELECT @id_usuario,'ALTERACAO_MANIFESTACAO',
+    (SELECT @id_atribuicao AS id_atribuicao,JSON_QUERY(@antes) AS antes,JSON_QUERY(@depois) AS depois FOR JSON PATH,WITHOUT_ARRAY_WRAPPER);
+  -- Registra propostas atuais explicitamente, com valores anteriores no evento principal.
+  INSERT dbo.auditoria(id_usuario,evento,detalhe)
+   SELECT @id_usuario,CASE acao WHEN 'ADICIONAR' THEN 'INCLUSAO_PROPOSTA' ELSE 'REMOCAO_PROPOSTA' END,
+    (SELECT @id_atribuicao AS id_atribuicao,i.id_assunto,i.acao,i.justificativa FOR JSON PATH,WITHOUT_ARRAY_WRAPPER)
+    FROM @itens i WHERE acao IN('ADICIONAR','REMOVER');
+  SELECT @revisao=revisao FROM dbo.manifestacao_tipo WHERE id_atribuicao=@id_atribuicao;
+  COMMIT;
+  SELECT @revisao AS revisao;
+ END TRY
+ BEGIN CATCH IF XACT_STATE()<>0 ROLLBACK; THROW; END CATCH;
+END;
+GO
+CREATE OR ALTER PROCEDURE dbo.sp_finalizar_manifestacao_orgao
+ @id_usuario int,@id_consulta int,@id_orgao int,@revisao_esperada int
+AS
+BEGIN
+ SET NOCOUNT ON; SET XACT_ABORT ON;
+ IF @revisao_esperada IS NULL OR @revisao_esperada<0 THROW 51033,'Revisao invalida.',1;
+ BEGIN TRY
+  BEGIN TRANSACTION;
+  DECLARE @status varchar(12),@revisao int;
+  SELECT @status=status,@revisao=revisao FROM dbo.consulta_orgao WITH(UPDLOCK,HOLDLOCK)
+   WHERE id_consulta=@id_consulta AND id_orgao=@id_orgao;
+  IF @status IS NULL OR NOT EXISTS(SELECT 1 FROM dbo.usuario_orgao u WITH(HOLDLOCK)
+   JOIN dbo.usuario p WITH(HOLDLOCK) ON p.id_usuario=u.id_usuario AND p.sin_ativo='S'
+   WHERE u.id_usuario=@id_usuario AND u.id_orgao=@id_orgao)
+   THROW 51030,'Orgao nao autorizado.',1;
+  IF @status='FINALIZADA' THROW 51031,'Manifestacao ja finalizada.',1;
+  IF @revisao<>@revisao_esperada THROW 51032,'Manifestacao alterada. Atualize o resumo.',1;
+  IF NOT EXISTS(SELECT 1 FROM dbo.consulta_orgao_tipo WHERE id_consulta=@id_consulta AND id_orgao=@id_orgao)
+   THROW 51039,'Nenhum Tipo atribuido ao orgao.',1;
+  IF EXISTS(SELECT 1 FROM dbo.consulta_orgao_tipo a LEFT JOIN dbo.visualizacao_tipo v ON v.id_atribuicao=a.id_atribuicao
+   WHERE a.id_consulta=@id_consulta AND a.id_orgao=@id_orgao AND v.id_atribuicao IS NULL)
+   THROW 51037,'Visualize todos os Tipos antes de finalizar.',1;
+  IF EXISTS(SELECT 1 FROM dbo.consulta_orgao_tipo a
+   JOIN dbo.rel_tipo_procedimento_assunto r ON r.versao=a.versao AND r.id_tipo_procedimento=a.id_tipo_procedimento
+   LEFT JOIN dbo.manifestacao_vinculo m ON m.id_atribuicao=a.id_atribuicao AND m.id_assunto=r.id_assunto_proxy
+    AND m.acao IN('MANTER','REMOVER')
+   WHERE a.id_consulta=@id_consulta AND a.id_orgao=@id_orgao AND m.id_assunto IS NULL)
+   THROW 51038,'Decida todos os vinculos existentes antes de finalizar.',1;
+  UPDATE dbo.consulta_orgao SET status='FINALIZADA',data_finalizacao=SYSUTCDATETIME(),id_usuario_finalizacao=@id_usuario,revisao=revisao+1
+   WHERE id_consulta=@id_consulta AND id_orgao=@id_orgao;
+  INSERT dbo.auditoria(id_usuario,evento,detalhe) SELECT @id_usuario,'FINALIZACAO',
+   (SELECT @id_consulta AS id_consulta,@id_orgao AS id_orgao,@revisao AS revisao_aprovada FOR JSON PATH,WITHOUT_ARRAY_WRAPPER);
+  COMMIT;
+  SELECT 'FINALIZADA' AS status;
+ END TRY
+ BEGIN CATCH IF XACT_STATE()<>0 ROLLBACK; THROW; END CATCH;
+END;
+GO
+
+-- ====================================================================
+-- Verificação antes de 006_completar_atribuicoes.sql: esse script contém
+-- "USE sei_gd" fixo (ver docs/instalacao_banco.md). Confere o destino antes
+-- de prosseguir; interrompe se o banco atual não se chamar "sei_gd".
+-- ====================================================================
+IF DB_NAME() <> N'sei_gd'
+BEGIN
+ DECLARE @msg_destino nvarchar(400) = N'Banco atual e "' + DB_NAME() +
+  N'". O trecho de 006_completar_atribuicoes.sql abaixo contem USE sei_gd fixo; ' +
+  N'confira o destino (ver docs/instalacao_banco.md) antes de continuar. Execucao interrompida.';
+ THROW 51999, @msg_destino, 1;
+END
+GO
+
+-- ====================================================================
+-- Origem: database/006_completar_atribuicoes.sql
+-- ====================================================================
+USE sei_gd;
+GO
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+GO
+CREATE OR ALTER PROCEDURE dbo.sp_completar_atribuicoes
+ @id_consulta int,
+ @aplicar bit = 0
+AS
+BEGIN
+ SET NOCOUNT ON;
+ SET XACT_ABORT ON;
+ IF @@TRANCOUNT<>0 THROW 51110,'Execute fora de outra transacao.',1;
+ IF @aplicar IS NULL THROW 51111,'Informe aplicar como 0 ou 1.',1;
+ BEGIN TRY
+  BEGIN TRANSACTION;
+  DECLARE @versao int,@lock int;
+  EXEC @lock=sys.sp_getapplock @Resource='carga_atribuicoes',
+   @LockMode='Exclusive',@LockOwner='Transaction',@LockTimeout=15000;
+  IF @lock<0 THROW 51112,'Carga concorrente. Tente novamente.',1;
+  SELECT @versao=versao FROM dbo.consulta WITH(UPDLOCK,HOLDLOCK)
+   WHERE id_consulta=@id_consulta;
+  IF @versao IS NULL THROW 51113,'Rodada inexistente.',1;
+  SELECT id_tipo_procedimento,id_orgao INTO #fonte
+   FROM dbo.tipo_procedimento_restricao WITH(HOLDLOCK);
+  IF NOT EXISTS(SELECT 1 FROM #fonte) THROW 51114,'Distribuicao vazia.',1;
+  IF EXISTS(SELECT 1 FROM #fonte f WHERE NOT EXISTS(
+   SELECT 1 FROM dbo.orgao WITH(HOLDLOCK) WHERE id_orgao=f.id_orgao))
+   THROW 51115,'Orgao nao cadastrado.',1;
+  IF EXISTS(SELECT 1 FROM #fonte f WHERE NOT EXISTS(
+   SELECT 1 FROM dbo.tipo_procedimento WITH(HOLDLOCK)
+   WHERE id_tipo_procedimento=f.id_tipo_procedimento AND versao=@versao))
+   THROW 51116,'Tipo de Processo inexistente na versao da rodada.',1;
+
+  -- Bloqueia os grupos contra salvamento/finalizacao durante a carga.
+  SELECT id_orgao,status INTO #grupos
+   FROM dbo.consulta_orgao WITH(UPDLOCK,HOLDLOCK)
+   WHERE id_consulta=@id_consulta;
+
+  SELECT f.id_orgao,f.id_tipo_procedimento,
+   CASE
+    WHEN EXISTS(SELECT 1 FROM dbo.consulta_orgao_tipo a WITH(HOLDLOCK)
+     WHERE a.id_consulta=@id_consulta AND a.id_orgao=f.id_orgao
+      AND a.id_tipo_procedimento=f.id_tipo_procedimento) THEN 'JA_ATRIBUIDO'
+    WHEN EXISTS(SELECT 1 FROM #grupos g
+     WHERE g.id_orgao=f.id_orgao AND g.status='FINALIZADA') THEN 'ORGAO_FINALIZADO'
+    ELSE 'INCLUIR'
+   END AS situacao INTO #plano
+   FROM #fonte f;
+
+  -- Mostra historico para decisao humana; nao presume equivalencia entre rodadas.
+  SELECT p.*,o.sigla,
+   (SELECT COUNT(*) FROM dbo.consulta_orgao_tipo a
+    JOIN dbo.consulta_orgao co ON co.id_consulta=a.id_consulta AND co.id_orgao=a.id_orgao
+    WHERE a.id_consulta<>@id_consulta AND a.id_orgao=p.id_orgao
+     AND a.id_tipo_procedimento=p.id_tipo_procedimento AND a.versao=@versao
+     AND co.status='FINALIZADA') AS finalizacoes_em_outras_rodadas
+   FROM #plano p JOIN dbo.orgao o ON o.id_orgao=p.id_orgao
+   ORDER BY o.sigla,p.id_tipo_procedimento;
+
+  IF @aplicar=1
+  BEGIN
+   -- Nao abrir nem alterar grupo finalizado.
+   INSERT dbo.consulta_orgao(id_consulta,id_orgao,status)
+    SELECT DISTINCT @id_consulta,p.id_orgao,'RASCUNHO' FROM #plano p
+    WHERE p.situacao='INCLUIR' AND NOT EXISTS(
+     SELECT 1 FROM dbo.consulta_orgao co
+     WHERE co.id_consulta=@id_consulta AND co.id_orgao=p.id_orgao);
+
+   INSERT dbo.consulta_orgao_tipo(id_consulta,id_orgao,versao,id_tipo_procedimento)
+    SELECT @id_consulta,id_orgao,@versao,id_tipo_procedimento
+    FROM #plano WHERE situacao='INCLUIR';
+
+   -- Invalida resumo aberto antes de incluir atribuicoes.
+   UPDATE co SET revisao=revisao+1
+    FROM dbo.consulta_orgao co
+    WHERE co.id_consulta=@id_consulta AND co.status='RASCUNHO'
+     AND EXISTS(SELECT 1 FROM #plano p WHERE p.id_orgao=co.id_orgao AND p.situacao='INCLUIR');
+  END;
+
+  SELECT @id_consulta AS id_consulta,@versao AS versao,@aplicar AS aplicado,
+   situacao,COUNT(*) AS quantidade FROM #plano GROUP BY situacao;
+  COMMIT;
+ END TRY
+ BEGIN CATCH
+  IF XACT_STATE()<>0 ROLLBACK;
+  THROW;
+ END CATCH;
+END;
+GO
+-- Descubra a rodada correta antes de executar:
+SELECT c.id_consulta,c.nome,c.versao,co.id_orgao,o.sigla,co.status,
+ COUNT(a.id_atribuicao) AS atribuicoes
+FROM dbo.consulta c
+LEFT JOIN dbo.consulta_orgao co ON co.id_consulta=c.id_consulta
+LEFT JOIN dbo.orgao o ON o.id_orgao=co.id_orgao
+LEFT JOIN dbo.consulta_orgao_tipo a ON a.id_consulta=co.id_consulta AND a.id_orgao=co.id_orgao
+GROUP BY c.id_consulta,c.nome,c.versao,co.id_orgao,o.sigla,co.status
+ORDER BY c.id_consulta,o.sigla;
+GO
+-- Previa (trocar 123 pelo ID correto):
+-- EXEC dbo.sp_completar_atribuicoes @id_consulta=123,@aplicar=0;
+-- Aplicacao explicita, somente depois da previa:
+-- EXEC dbo.sp_completar_atribuicoes @id_consulta=123,@aplicar=1;
+
+-- ====================================================================
+-- Origem: database/007_administracao.sql
+-- ====================================================================
+-- Executar uma vez em sei_gd após 005. Compatibilidade >=130.
+-- Preserva cadastros e vínculos existentes; não instala autenticação por e-mail.
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+SET XACT_ABORT ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+GO
+BEGIN TRY
+ BEGIN TRANSACTION;
+ IF NOT EXISTS(SELECT 1 FROM dbo.usuario WHERE email='pg@setic.ro.gov.br' AND sin_ativo='S')
+  THROW 51200,'Usuario inicial de teste ausente ou inativo.',1;
+ IF EXISTS(SELECT LOWER(LTRIM(RTRIM(email))) FROM dbo.usuario
+  GROUP BY LOWER(LTRIM(RTRIM(email))) HAVING COUNT(*)>1)
+  THROW 51201,'Ha emails duplicados apos normalizacao. Revise antes de instalar.',1;
+ ALTER TABLE dbo.usuario ADD nome nvarchar(150) NULL,
+  sin_admin char(1) NOT NULL CONSTRAINT DF_usuario_admin DEFAULT 'N'
+   CONSTRAINT CK_usuario_admin CHECK(sin_admin IN('S','N')),
+  revisao int NOT NULL CONSTRAINT DF_usuario_revisao DEFAULT 0,
+  versao_sessao int NOT NULL CONSTRAINT DF_usuario_sessao DEFAULT 0;
+ ALTER TABLE dbo.usuario ADD email_normalizado AS LOWER(LTRIM(RTRIM(email))) PERSISTED;
+ -- Compila após o ALTER, evitando referência à coluna nova no mesmo batch.
+ EXEC sys.sp_executesql N'CREATE UNIQUE INDEX UQ_usuario_email_normalizado ON dbo.usuario(email_normalizado);';
+ CREATE TABLE dbo.auditoria_administrativa (
+  id_evento bigint IDENTITY PRIMARY KEY,
+  data_evento datetime2 NOT NULL DEFAULT SYSUTCDATETIME(),
+  id_usuario_responsavel int NOT NULL REFERENCES dbo.usuario(id_usuario),
+  id_usuario_alvo int NOT NULL REFERENCES dbo.usuario(id_usuario),
+  responsavel_nome nvarchar(150) NULL,
+  responsavel_email varchar(250) NOT NULL,
+  evento varchar(40) NOT NULL,
+  antes nvarchar(max) NULL,
+  depois nvarchar(max) NOT NULL,
+  CHECK(antes IS NULL OR ISJSON(antes)=1), CHECK(ISJSON(depois)=1)
+ );
+ CREATE INDEX IX_auditoria_admin_alvo ON dbo.auditoria_administrativa(id_usuario_alvo,id_evento DESC);
+ COMMIT;
+END TRY
+BEGIN CATCH
+ IF XACT_STATE()<>0 ROLLBACK;
+ THROW;
+END CATCH;
+GO
+CREATE OR ALTER TRIGGER dbo.tr_auditoria_admin_imutavel ON dbo.auditoria_administrativa
+INSTEAD OF UPDATE,DELETE AS
+BEGIN
+ THROW 51202,'Historico administrativo nao pode ser sobrescrito.',1;
+END;
+GO
+-- Bootstrap explícito e auditado do usuário de teste. Não altera seu nome/órgãos.
+BEGIN TRY
+ BEGIN TRANSACTION;
+ DECLARE @inicial int,@antes nvarchar(max),@depois nvarchar(max);
+ SELECT @inicial=id_usuario FROM dbo.usuario WITH(UPDLOCK,HOLDLOCK)
+  WHERE email_normalizado='pg@setic.ro.gov.br' AND sin_ativo='S';
+ IF @inicial IS NULL THROW 51200,'Usuario inicial de teste ausente ou inativo.',1;
+ SELECT @antes=(SELECT nome,email,sin_ativo,sin_admin,revisao,
+  JSON_QUERY((SELECT id_orgao FROM dbo.usuario_orgao WHERE id_usuario=@inicial ORDER BY id_orgao FOR JSON PATH)) AS orgaos
+  FROM dbo.usuario WHERE id_usuario=@inicial FOR JSON PATH,INCLUDE_NULL_VALUES,WITHOUT_ARRAY_WRAPPER);
+ UPDATE dbo.usuario SET sin_admin='S',revisao=revisao+1,versao_sessao=versao_sessao+1 WHERE id_usuario=@inicial;
+ SELECT @depois=(SELECT nome,email,sin_ativo,sin_admin,revisao,
+  JSON_QUERY((SELECT id_orgao FROM dbo.usuario_orgao WHERE id_usuario=@inicial ORDER BY id_orgao FOR JSON PATH)) AS orgaos
+  FROM dbo.usuario WHERE id_usuario=@inicial FOR JSON PATH,INCLUDE_NULL_VALUES,WITHOUT_ARRAY_WRAPPER);
+ INSERT dbo.auditoria_administrativa(id_usuario_responsavel,id_usuario_alvo,responsavel_nome,responsavel_email,evento,antes,depois)
+  SELECT @inicial,@inicial,nome,email,'ADMINISTRADOR_INICIAL',@antes,@depois FROM dbo.usuario WHERE id_usuario=@inicial;
+ COMMIT;
+END TRY
+BEGIN CATCH IF XACT_STATE()<>0 ROLLBACK; THROW; END CATCH;
+GO
+CREATE OR ALTER PROCEDURE dbo.sp_salvar_usuario
+ @responsavel int,@id_usuario int,@revisao_esperada int,
+ @nome nvarchar(max),@email nvarchar(max),@ativo char(1),@admin char(1),@orgaos nvarchar(max)
+AS
+BEGIN
+ SET NOCOUNT ON; SET XACT_ABORT ON;
+ SET ANSI_PADDING ON; SET ANSI_WARNINGS ON; SET ARITHABORT ON;
+ SET CONCAT_NULL_YIELDS_NULL ON; SET NUMERIC_ROUNDABORT OFF;
+ SET @nome=LTRIM(RTRIM(@nome)); SET @email=LOWER(LTRIM(RTRIM(@email)));
+ IF @id_usuario IS NULL OR @id_usuario<0 OR @revisao_esperada IS NULL OR @revisao_esperada<0
+  OR @nome IS NULL OR LEN(@nome)=0 OR DATALENGTH(@nome)>300
+  OR @email IS NULL OR LEN(@email)=0 OR DATALENGTH(@email)>500
+  OR @email LIKE N'%[^ -~]%' COLLATE Latin1_General_BIN2 OR @email LIKE N'% %' OR @email NOT LIKE N'%_@_%._%'
+  OR @ativo IS NULL OR @ativo NOT IN('S','N') OR @admin IS NULL OR @admin NOT IN('S','N')
+  THROW 51210,'Cadastro invalido.',1;
+ IF @orgaos IS NULL OR ISJSON(@orgaos)<>1 OR LEFT(LTRIM(@orgaos),1)<>'['
+  THROW 51210,'Lista de orgaos invalida.',1;
+ DECLARE @lista TABLE(id_orgao int PRIMARY KEY);
+ IF EXISTS(SELECT 1 FROM OPENJSON(@orgaos) WHERE type<>2 OR TRY_CONVERT(int,value) IS NULL
+  OR value LIKE '%[.eE]%') OR EXISTS(SELECT value FROM OPENJSON(@orgaos) GROUP BY value HAVING COUNT(*)>1)
+  THROW 51210,'Lista de orgaos invalida ou duplicada.',1;
+ INSERT @lista SELECT CONVERT(int,value) FROM OPENJSON(@orgaos);
+ BEGIN TRY
+  BEGIN TRANSACTION;
+  DECLARE @lock int,@revisao int,@antes nvarchar(max),@depois nvarchar(max),@revogar bit=0,
+   @responsavel_nome nvarchar(150),@responsavel_email varchar(250);
+  -- Serializa alterações de perfil e vínculos, inclusive do administrador responsável.
+  EXEC @lock=sys.sp_getapplock @Resource='administracao_usuarios',@LockMode='Exclusive',
+   @LockOwner='Transaction',@LockTimeout=15000;
+  IF @lock<0 THROW 51215,'Administracao ocupada. Tente novamente.',1;
+  IF NOT EXISTS(SELECT 1 FROM dbo.usuario WITH(UPDLOCK,HOLDLOCK)
+   WHERE id_usuario=@responsavel AND sin_ativo='S' AND sin_admin='S')
+   THROW 51211,'Administracao nao autorizada.',1;
+  SELECT @responsavel_nome=nome,@responsavel_email=email FROM dbo.usuario WHERE id_usuario=@responsavel;
+  IF EXISTS(SELECT 1 FROM @lista l WHERE NOT EXISTS(SELECT 1 FROM dbo.orgao WITH(HOLDLOCK) WHERE id_orgao=l.id_orgao))
+   THROW 51214,'Orgao inexistente.',1;
+  IF EXISTS(SELECT 1 FROM dbo.usuario WITH(UPDLOCK,HOLDLOCK)
+   WHERE email_normalizado=@email AND id_usuario<>@id_usuario)
+   THROW 51213,'Email ja cadastrado.',1;
+  IF @id_usuario=0
+  BEGIN
+   IF @revisao_esperada<>0 THROW 51212,'Revisao invalida para novo usuario.',1;
+   INSERT dbo.usuario(nome,email,sin_ativo,sin_admin) VALUES(@nome,CONVERT(varchar(250),@email),@ativo,@admin);
+   SET @id_usuario=CONVERT(int,SCOPE_IDENTITY());
+  END
+  ELSE
+  BEGIN
+   SELECT @revisao=revisao FROM dbo.usuario WITH(UPDLOCK,HOLDLOCK) WHERE id_usuario=@id_usuario;
+   IF @revisao IS NULL THROW 51216,'Usuario inexistente.',1;
+   IF @revisao<>@revisao_esperada THROW 51212,'Cadastro alterado. Recarregue antes de salvar.',1;
+   SELECT @antes=(SELECT nome,email,sin_ativo,sin_admin,revisao,
+    JSON_QUERY((SELECT id_orgao FROM dbo.usuario_orgao WHERE id_usuario=@id_usuario ORDER BY id_orgao FOR JSON PATH)) AS orgaos
+    FROM dbo.usuario WHERE id_usuario=@id_usuario FOR JSON PATH,INCLUDE_NULL_VALUES,WITHOUT_ARRAY_WRAPPER);
+   IF EXISTS(SELECT 1 FROM dbo.usuario WHERE id_usuario=@id_usuario
+     AND (email_normalizado<>@email OR sin_ativo<>@ativo OR sin_admin<>@admin))
+    OR EXISTS(SELECT id_orgao FROM @lista EXCEPT SELECT id_orgao FROM dbo.usuario_orgao WHERE id_usuario=@id_usuario)
+    OR EXISTS(SELECT id_orgao FROM dbo.usuario_orgao WHERE id_usuario=@id_usuario EXCEPT SELECT id_orgao FROM @lista)
+    SET @revogar=1;
+   UPDATE dbo.usuario SET nome=@nome,email=CONVERT(varchar(250),@email),sin_ativo=@ativo,sin_admin=@admin,
+    revisao=revisao+1,versao_sessao=versao_sessao+CONVERT(int,@revogar) WHERE id_usuario=@id_usuario;
+  END;
+  DELETE u FROM dbo.usuario_orgao u WHERE id_usuario=@id_usuario AND NOT EXISTS(SELECT 1 FROM @lista l WHERE l.id_orgao=u.id_orgao);
+  INSERT dbo.usuario_orgao(id_usuario,id_orgao)
+   SELECT @id_usuario,l.id_orgao FROM @lista l WHERE NOT EXISTS(
+    SELECT 1 FROM dbo.usuario_orgao u WHERE u.id_usuario=@id_usuario AND u.id_orgao=l.id_orgao);
+  SELECT @depois=(SELECT nome,email,sin_ativo,sin_admin,revisao,
+   JSON_QUERY((SELECT id_orgao FROM dbo.usuario_orgao WHERE id_usuario=@id_usuario ORDER BY id_orgao FOR JSON PATH)) AS orgaos
+   FROM dbo.usuario WHERE id_usuario=@id_usuario FOR JSON PATH,INCLUDE_NULL_VALUES,WITHOUT_ARRAY_WRAPPER);
+  INSERT dbo.auditoria_administrativa(id_usuario_responsavel,id_usuario_alvo,responsavel_nome,responsavel_email,evento,antes,depois)
+   VALUES(@responsavel,@id_usuario,@responsavel_nome,@responsavel_email,CASE WHEN @antes IS NULL THEN 'USUARIO_CRIADO' ELSE 'USUARIO_ATUALIZADO' END,@antes,@depois);
+  SELECT @revisao=revisao FROM dbo.usuario WHERE id_usuario=@id_usuario;
+  COMMIT;
+  SELECT @id_usuario AS id_usuario,@revisao AS revisao,CONVERT(int,@revogar) AS sessoes_revogadas;
+ END TRY
+ BEGIN CATCH IF XACT_STATE()<>0 ROLLBACK; THROW; END CATCH;
+END;
+GO
+
+-- ====================================================================
+-- Origem: database/008_decisao_tipo.sql
+-- ====================================================================
+-- Executar em sei_gd após 007, antes de atualizar backend/frontend.
+-- Não altera tabelas de referência nem o SEI.
+SET ANSI_NULLS ON;
+SET QUOTED_IDENTIFIER ON;
+SET XACT_ABORT ON;
+GO
+BEGIN TRANSACTION;
+IF COL_LENGTH('dbo.manifestacao_tipo','decisao_tipo') IS NULL
+BEGIN
+    ALTER TABLE dbo.manifestacao_tipo ADD
+        decisao_tipo varchar(15) NULL,
+        justificativa_tipo nvarchar(2000) NULL;
+
+END;
+COMMIT;
+GO
+BEGIN TRANSACTION;
+    -- Submissões anteriores equivalem ao fluxo legado de manutenção.
+    -- Rascunhos permanecem sem decisão explícita.
+    UPDATE manifestacao
+    SET decisao_tipo='MANTER'
+    FROM dbo.manifestacao_tipo manifestacao
+    JOIN dbo.consulta_orgao_tipo atribuicao ON atribuicao.id_atribuicao=manifestacao.id_atribuicao
+    JOIN dbo.consulta_orgao grupo
+      ON grupo.id_consulta=atribuicao.id_consulta AND grupo.id_orgao=atribuicao.id_orgao
+    WHERE grupo.status='FINALIZADA' AND manifestacao.decisao_tipo IS NULL;
+
+    INSERT dbo.manifestacao_tipo
+        (id_atribuicao,versao,observacao,id_usuario_alteracao,decisao_tipo)
+    SELECT atribuicao.id_atribuicao,atribuicao.versao,N'',grupo.id_usuario_finalizacao,'MANTER'
+    FROM dbo.consulta_orgao_tipo atribuicao
+    JOIN dbo.consulta_orgao grupo
+      ON grupo.id_consulta=atribuicao.id_consulta AND grupo.id_orgao=atribuicao.id_orgao
+    WHERE grupo.status='FINALIZADA'
+      AND NOT EXISTS (SELECT 1 FROM dbo.manifestacao_tipo m WHERE m.id_atribuicao=atribuicao.id_atribuicao);
+COMMIT;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE name='CK_manifestacao_decisao_tipo')
+    ALTER TABLE dbo.manifestacao_tipo ADD CONSTRAINT CK_manifestacao_decisao_tipo CHECK (
+        decisao_tipo IS NULL OR decisao_tipo='MANTER' OR
+        (decisao_tipo='DESCONTINUAR' AND NULLIF(LTRIM(RTRIM(justificativa_tipo)),N'') IS NOT NULL)
+    );
+GO
+CREATE OR ALTER PROCEDURE dbo.sp_salvar_manifestacao
+ @id_usuario int, @id_atribuicao int, @revisao_esperada int,
+ @observacao nvarchar(max), @vinculos nvarchar(max),
+ @decisao_tipo varchar(15), @justificativa_tipo nvarchar(max)
+AS
+BEGIN
+ SET NOCOUNT ON; SET XACT_ABORT ON;
+ IF @revisao_esperada IS NULL OR @revisao_esperada<0 THROW 51033,'Revisao invalida.',1;
+ IF @decisao_tipo IS NULL OR @decisao_tipo NOT IN ('MANTER','DESCONTINUAR')
+  THROW 51041,'Decida manter ou sugerir descontinuacao do Tipo.',1;
+ IF LEN(ISNULL(@justificativa_tipo,N''))>2000
+  THROW 51040,'Justificativa excede 2000 caracteres.',1;
+ IF @decisao_tipo='DESCONTINUAR' AND NULLIF(LTRIM(RTRIM(@justificativa_tipo)),N'') IS NULL
+  THROW 51042,'Justifique a sugestao de descontinuacao.',1;
+ BEGIN TRY
+  BEGIN TRANSACTION;
+  DECLARE @consulta int,@orgao int,@versao int,@tipo int,@status varchar(12),@revisao int,@antes nvarchar(max),@depois nvarchar(max);
+  SELECT @consulta=id_consulta,@orgao=id_orgao,@versao=versao,@tipo=id_tipo_procedimento
+   FROM dbo.consulta_orgao_tipo WHERE id_atribuicao=@id_atribuicao;
+  IF @consulta IS NULL THROW 51030,'Atribuicao nao autorizada.',1;
+  SELECT @status=status FROM dbo.consulta_orgao WITH(UPDLOCK,HOLDLOCK)
+   WHERE id_consulta=@consulta AND id_orgao=@orgao;
+  IF NOT EXISTS(SELECT 1 FROM dbo.usuario_orgao u WITH(HOLDLOCK)
+   JOIN dbo.usuario p WITH(HOLDLOCK) ON p.id_usuario=u.id_usuario AND p.sin_ativo='S'
+   WHERE u.id_usuario=@id_usuario AND u.id_orgao=@orgao)
+   THROW 51030,'Atribuicao nao autorizada.',1;
+  IF @status='FINALIZADA' THROW 51031,'Manifestacao finalizada.',1;
+  SELECT @revisao=revisao FROM dbo.manifestacao_tipo WITH(UPDLOCK,HOLDLOCK) WHERE id_atribuicao=@id_atribuicao;
+  IF ISNULL(@revisao,0)<>@revisao_esperada THROW 51032,'Outro usuario alterou este Tipo. Recarregue.',1;
+  IF LEN(ISNULL(@observacao,N''))>5000 THROW 51040,'Observacao excede 5000 caracteres.',1;
+  IF @decisao_tipo='DESCONTINUAR' SET @vinculos=N'[]';
+  IF @vinculos IS NULL OR ISJSON(@vinculos)<>1 OR LEFT(LTRIM(@vinculos),1)<>'[' THROW 51033,'Lista de vinculos invalida.',1;
+  DECLARE @itens TABLE(id_assunto int NULL,acao nvarchar(max) NULL,justificativa nvarchar(max) NULL);
+  INSERT @itens SELECT id_assunto,acao,justificativa FROM OPENJSON(@vinculos)
+   WITH(id_assunto int '$.id_assunto',acao nvarchar(max) '$.acao',justificativa nvarchar(max) '$.justificativa');
+  IF EXISTS(SELECT 1 FROM @itens WHERE id_assunto IS NULL OR acao IS NULL OR acao NOT IN('MANTER','REMOVER','ADICIONAR'))
+   OR EXISTS(SELECT 1 FROM @itens GROUP BY id_assunto HAVING COUNT(*)>1)
+   THROW 51033,'Lista de vinculos invalida ou duplicada.',1;
+  IF EXISTS(SELECT 1 FROM @itens WHERE LEN(ISNULL(justificativa,N''))>2000)
+   THROW 51040,'Justificativa excede 2000 caracteres.',1;
+  IF EXISTS(SELECT 1 FROM @itens WHERE acao IN('REMOVER','ADICIONAR') AND NULLIF(LTRIM(RTRIM(justificativa)),N'') IS NULL)
+   THROW 51036,'Justificativa obrigatoria para remover e adicionar.',1;
+  IF EXISTS(SELECT 1 FROM @itens i LEFT JOIN dbo.assunto s ON s.versao=@versao AND s.id_assunto=i.id_assunto
+   WHERE s.id_assunto IS NULL OR (i.acao='ADICIONAR' AND s.sin_ativo<>'S'))
+   THROW 51035,'Assunto inexistente ou inclusao de assunto inativo.',1;
+  IF EXISTS(SELECT 1 FROM @itens i WHERE
+   (i.acao='ADICIONAR' AND EXISTS(SELECT 1 FROM dbo.rel_tipo_procedimento_assunto r
+     WHERE r.versao=@versao AND r.id_tipo_procedimento=@tipo AND r.id_assunto_proxy=i.id_assunto))
+   OR (i.acao IN('MANTER','REMOVER') AND NOT EXISTS(SELECT 1 FROM dbo.rel_tipo_procedimento_assunto r
+     WHERE r.versao=@versao AND r.id_tipo_procedimento=@tipo AND r.id_assunto_proxy=i.id_assunto)))
+   THROW 51034,'Acao incompatível com vinculo original.',1;
+  SELECT @antes=(SELECT m.observacao,m.revisao,m.decisao_tipo,m.justificativa_tipo,
+    JSON_QUERY((SELECT id_assunto,acao,justificativa FROM dbo.manifestacao_vinculo WHERE id_atribuicao=@id_atribuicao ORDER BY id_assunto FOR JSON PATH)) AS vinculos
+    FROM dbo.manifestacao_tipo m WHERE m.id_atribuicao=@id_atribuicao FOR JSON PATH,WITHOUT_ARRAY_WRAPPER);
+  IF @revisao IS NULL
+   INSERT dbo.manifestacao_tipo(id_atribuicao,versao,observacao,id_usuario_alteracao,decisao_tipo,justificativa_tipo)
+    VALUES(@id_atribuicao,@versao,@observacao,@id_usuario,@decisao_tipo,@justificativa_tipo);
+  ELSE
+   UPDATE dbo.manifestacao_tipo SET observacao=@observacao,decisao_tipo=@decisao_tipo,justificativa_tipo=@justificativa_tipo,revisao=revisao+1,id_usuario_alteracao=@id_usuario,data_alteracao=SYSUTCDATETIME()
+    WHERE id_atribuicao=@id_atribuicao;
+  IF @decisao_tipo='MANTER'
+  BEGIN
+  DELETE dbo.manifestacao_vinculo WHERE id_atribuicao=@id_atribuicao;
+  INSERT dbo.manifestacao_vinculo(id_atribuicao,versao,id_assunto,acao,justificativa)
+   SELECT @id_atribuicao,@versao,id_assunto,acao,justificativa FROM @itens;
+  END;
+  UPDATE dbo.consulta_orgao SET revisao=revisao+1 WHERE id_consulta=@consulta AND id_orgao=@orgao;
+  SELECT @depois=(SELECT observacao,revisao,decisao_tipo,justificativa_tipo,
+    JSON_QUERY((SELECT id_assunto,acao,justificativa FROM dbo.manifestacao_vinculo WHERE id_atribuicao=@id_atribuicao FOR JSON PATH)) AS vinculos FROM dbo.manifestacao_tipo WHERE id_atribuicao=@id_atribuicao FOR JSON PATH,WITHOUT_ARRAY_WRAPPER);
+  INSERT dbo.auditoria(id_usuario,evento,detalhe)
+   SELECT @id_usuario,'ALTERACAO_MANIFESTACAO',
+    (SELECT @id_atribuicao AS id_atribuicao,JSON_QUERY(@antes) AS antes,JSON_QUERY(@depois) AS depois FOR JSON PATH,WITHOUT_ARRAY_WRAPPER);
+  -- Registra propostas atuais explicitamente, com valores anteriores no evento principal.
+  INSERT dbo.auditoria(id_usuario,evento,detalhe)
+   SELECT @id_usuario,CASE acao WHEN 'ADICIONAR' THEN 'INCLUSAO_PROPOSTA' ELSE 'REMOCAO_PROPOSTA' END,
+    (SELECT @id_atribuicao AS id_atribuicao,i.id_assunto,i.acao,i.justificativa FOR JSON PATH,WITHOUT_ARRAY_WRAPPER)
+    FROM @itens i WHERE acao IN('ADICIONAR','REMOVER');
+  SELECT @revisao=revisao FROM dbo.manifestacao_tipo WHERE id_atribuicao=@id_atribuicao;
+  COMMIT;
+  SELECT @revisao AS revisao;
+ END TRY
+ BEGIN CATCH IF XACT_STATE()<>0 ROLLBACK; THROW; END CATCH;
+END;
+GO
+CREATE OR ALTER PROCEDURE dbo.sp_finalizar_manifestacao_orgao
+ @id_usuario int,@id_consulta int,@id_orgao int,@revisao_esperada int
+AS
+BEGIN
+ SET NOCOUNT ON; SET XACT_ABORT ON;
+ IF @revisao_esperada IS NULL OR @revisao_esperada<0 THROW 51033,'Revisao invalida.',1;
+ BEGIN TRY
+  BEGIN TRANSACTION;
+  DECLARE @status varchar(12),@revisao int;
+  SELECT @status=status,@revisao=revisao FROM dbo.consulta_orgao WITH(UPDLOCK,HOLDLOCK)
+   WHERE id_consulta=@id_consulta AND id_orgao=@id_orgao;
+  IF @status IS NULL OR NOT EXISTS(SELECT 1 FROM dbo.usuario_orgao u WITH(HOLDLOCK)
+   JOIN dbo.usuario p WITH(HOLDLOCK) ON p.id_usuario=u.id_usuario AND p.sin_ativo='S'
+   WHERE u.id_usuario=@id_usuario AND u.id_orgao=@id_orgao)
+   THROW 51030,'Orgao nao autorizado.',1;
+  IF @status='FINALIZADA' THROW 51031,'Manifestacao ja finalizada.',1;
+  IF @revisao<>@revisao_esperada THROW 51032,'Manifestacao alterada. Atualize o resumo.',1;
+  IF NOT EXISTS(SELECT 1 FROM dbo.consulta_orgao_tipo WHERE id_consulta=@id_consulta AND id_orgao=@id_orgao)
+   THROW 51039,'Nenhum Tipo atribuido ao orgao.',1;
+  IF EXISTS(SELECT 1 FROM dbo.consulta_orgao_tipo a LEFT JOIN dbo.visualizacao_tipo v ON v.id_atribuicao=a.id_atribuicao
+   WHERE a.id_consulta=@id_consulta AND a.id_orgao=@id_orgao AND v.id_atribuicao IS NULL)
+   THROW 51037,'Visualize todos os Tipos antes de finalizar.',1;
+  IF EXISTS (
+    SELECT 1 FROM dbo.consulta_orgao_tipo a
+    LEFT JOIN dbo.manifestacao_tipo m ON m.id_atribuicao=a.id_atribuicao
+    WHERE a.id_consulta=@id_consulta AND a.id_orgao=@id_orgao
+      AND (m.decisao_tipo IS NULL OR
+        (m.decisao_tipo='DESCONTINUAR' AND NULLIF(LTRIM(RTRIM(m.justificativa_tipo)),N'') IS NULL))
+  ) THROW 51041,'Decida todos os Tipos e justifique as descontinuacoes.',1;
+  IF EXISTS(SELECT 1 FROM dbo.consulta_orgao_tipo a
+   JOIN dbo.manifestacao_tipo mt ON mt.id_atribuicao=a.id_atribuicao AND mt.decisao_tipo='MANTER'
+   JOIN dbo.rel_tipo_procedimento_assunto r ON r.versao=a.versao AND r.id_tipo_procedimento=a.id_tipo_procedimento
+   LEFT JOIN dbo.manifestacao_vinculo m ON m.id_atribuicao=a.id_atribuicao AND m.id_assunto=r.id_assunto_proxy
+    AND m.acao IN('MANTER','REMOVER')
+   WHERE a.id_consulta=@id_consulta AND a.id_orgao=@id_orgao AND m.id_assunto IS NULL)
+   THROW 51038,'Decida todos os vinculos existentes antes de finalizar.',1;
+  UPDATE dbo.consulta_orgao SET status='FINALIZADA',data_finalizacao=SYSUTCDATETIME(),id_usuario_finalizacao=@id_usuario,revisao=revisao+1
+   WHERE id_consulta=@id_consulta AND id_orgao=@id_orgao;
+  INSERT dbo.auditoria(id_usuario,evento,detalhe) SELECT @id_usuario,'FINALIZACAO',
+   (SELECT @id_consulta AS id_consulta,@id_orgao AS id_orgao,@revisao AS revisao_aprovada FOR JSON PATH,WITHOUT_ARRAY_WRAPPER);
+  COMMIT;
+  SELECT 'FINALIZADA' AS status;
+ END TRY
+ BEGIN CATCH IF XACT_STATE()<>0 ROLLBACK; THROW; END CATCH;
+END;
+GO
+
+-- ====================================================================
+-- PENDENTE (não executado por este script; ver docs/instalacao_banco.md):
+--   1. Carregar ref_assunto, ref_tipo_procedimento e
+--      ref_rel_tipo_procedimento_assunto, nessa ordem, a partir da fonte SEI
+--      autorizada, com id_assunto_pai explícito (nunca inferido pelo código).
+--      Carregar também hipotese_legal e tipo_procedimento_restricao. Não há
+--      dados de exemplo nem carga automática dessas referências.
+--   2. Publicar a versão: EXEC dbo.sp_publicar_versao_sei informando usuário
+--      e origem reais.
+--   3. Cadastrar orgao preservando os IDs do SEI (inclusive 0), os vínculos
+--      usuario_orgao e a rodada em consulta com sua versão.
+--   4. Revisar EXEC dbo.sp_completar_atribuicoes @id_consulta=<id>,@aplicar=0
+--      antes de repetir com @aplicar=1.
+--   5. Revisar o acesso administrativo promovido pelo trecho de
+--      007_administracao.sql antes de disponibilizar a aplicação.
+--   6. Verificar com "dart run bin/check_database.dart" e
+--      "dart run bin/check_schema.dart" a partir de backend/.
+PRINT N'Scripts automaticos concluidos. Siga as etapas PENDENTES listadas no final deste arquivo (carga de referencias, publicacao, orgaos, atribuicoes e revisao de acesso) antes de liberar a aplicacao.';
+GO

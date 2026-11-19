@@ -1,5 +1,7 @@
 # Build: contexto frontend/
-FROM ghcr.io/cirruslabs/flutter:stable AS build
+# Imagem do Docker Hub (esteira não aceita GHCR). CI usa Flutter 3.47.2; 3.41.6
+# é a versão mais recente disponível nesta imagem no momento desta alteração.
+FROM instrumentisto/flutter:3.41.6 AS build
 WORKDIR /src
 COPY pubspec.* ./
 RUN flutter pub get
